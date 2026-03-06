@@ -1,0 +1,38 @@
+{
+  "output_template_path": "Output sheet.xlsx",
+  "destination_workbook_path": "DESTINATION_Output_DB.xlsx",
+  "destination_sheet_name": "Output",
+  "input_sheets": {
+    "start_page": "Start Page",
+    "projections": "Projections"
+  },
+  "filters_sheet_name": "Filters",
+  "filters": {
+    "question_row": 5,
+    "required_row": 8,
+    "start_col": "B",
+    "end_col": "Q",
+    "dropdown_start_row": 10
+  },
+  "projections": {
+    "scan_start_col": "E",
+    "scan_end_col": "U",
+    "condition_last_month_row": 6,
+    "condition_status_row": 8,
+    "transpose_start_row": 6,
+    "transpose_end_row": 288
+  },
+  "output_layout": {
+    "static_start_col": "A",
+    "static_end_col": "BC",
+    "dynamic_start_col": "BD",
+    "dynamic_end_col": "LZ",
+    "insert_row_index": 2
+  },
+  "geocoding": {
+    "enabled": false,
+    "provider": "stub",
+    "api_key": "",
+    "endpoint": ""
+  }
+}
