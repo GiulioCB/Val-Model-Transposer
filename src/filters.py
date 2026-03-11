@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Tuple
 from .excel_utils import normalize_str
 from .types import FilterQuestion
 
-FILTER_OPTIONS_PATH = Path(__file__).resolve().parent.parent / "configs" / "filter_options.json"
 FILTER_5_OPTIONS_PATH = Path(__file__).resolve().parent.parent / "configs" / "filter_5_options.json"
 FILTER_6_OPTIONS_PATH = Path(__file__).resolve().parent.parent / "configs" / "filter_6_options.json"
 FILTER_7_OPTIONS_PATH = Path(__file__).resolve().parent.parent / "configs" / "filter_7_options.json"
@@ -123,24 +122,6 @@ def _dedupe_options(options: List[str]) -> List[str]:
     return cleaned
 
 
-def _load_saved_dropdown_options() -> Dict[str, List[str]]:
-    if not FILTER_OPTIONS_PATH.exists():
-        return {}
-
-    with FILTER_OPTIONS_PATH.open("r", encoding="utf-8") as fh:
-        data = json.load(fh)
-
-    if not isinstance(data, dict):
-        return {}
-
-    saved_options: Dict[str, List[str]] = {}
-    for key, values in data.items():
-        if isinstance(values, list):
-            saved_options[str(key)] = _dedupe_options([str(value) for value in values])
-
-    return saved_options
-
-
 def _load_external_filter_options(path: Path, expected_title: str) -> List[str]:
     if not path.exists():
         return []
@@ -171,18 +152,6 @@ def normalize_answers_for_processing(answers: Dict[int, Any]) -> Dict[int, Any]:
     return normalized_answers
 
 
-def _save_dropdown_options(options_by_title: Dict[str, List[str]]) -> None:
-    FILTER_OPTIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    serializable = {
-        title: _dedupe_options(values)
-        for title, values in sorted(options_by_title.items())
-    }
-
-    with FILTER_OPTIONS_PATH.open("w", encoding="utf-8") as fh:
-        json.dump(serializable, fh, indent=2)
-
-
 def read_filter_questions(
     output_template_path: str | None = None,
     filters_sheet_name: str | None = None,
@@ -194,7 +163,6 @@ def read_filter_questions(
 ) -> List[FilterQuestion]:
     # Kept signature-compatible with the previous workbook-based implementation so
     # existing callers do not need to change when switching to code-defined filters.
-    saved_options = _load_saved_dropdown_options()
     questions: List[FilterQuestion] = []
 
     for question in HARDCODED_FILTER_QUESTIONS:
@@ -206,46 +174,14 @@ def read_filter_questions(
         elif cloned.idx == 7:
             cloned.options = _load_external_filter_options(FILTER_7_OPTIONS_PATH, cloned.title)
         if cloned.kind in ("dropdown", "fixed_dropdown"):
-            merged_options = list(cloned.options or [])
-            merged_options.extend(saved_options.get(cloned.title, []))
-            cloned.options = _dedupe_options(merged_options)
+            cloned.options = _dedupe_options(list(cloned.options or []))
         questions.append(cloned)
 
     return questions
 
 
 def add_dropdown_option(question_title: str, new_option: str) -> str | None:
-    normalized_title = normalize_str(question_title)
-    normalized_option = normalize_str(new_option)
-
-    if not normalized_title or not normalized_option:
-        return None
-
-    question_lookup = {
-        normalize_str(question.title).casefold(): question
-        for question in HARDCODED_FILTER_QUESTIONS
-        if question.kind == "dropdown"
-    }
-    question = question_lookup.get(normalized_title.casefold())
-    if question is None:
-        raise ValueError(f"Dropdown filter '{question_title}' was not found.")
-
-    saved_options = _load_saved_dropdown_options()
-    merged_options = list(question.options or [])
-    merged_options.extend(saved_options.get(question.title, []))
-
-    existing_before_save = {
-        option.casefold()
-        for option in (question.options or []) + saved_options.get(question.title, [])
-    }
-    if normalized_option.casefold() in existing_before_save:
-        return None
-
-    merged_options.append(normalized_option)
-    deduped_options = _dedupe_options(merged_options)
-    saved_options[question.title] = deduped_options
-    _save_dropdown_options(saved_options)
-    return normalized_option
+    return None
 
 
 def validate_answers(questions: List[FilterQuestion], answers: Dict[int, Any]) -> Tuple[bool, List[str]]:

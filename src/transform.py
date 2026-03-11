@@ -54,6 +54,15 @@ def extract_transpose_vector(
 ) -> List[Any]:
     return [ws_proj.cell(row=r, column=col_idx).value for r in range(start_row, end_row + 1)]
 
+
+def read_projection_row_headers(
+    ws_proj,
+    start_row: int,
+    end_row: int,
+    title_col: int = 2,
+) -> List[Any]:
+    return [ws_proj.cell(row=r, column=title_col).value for r in range(start_row, end_row + 1)]
+
 def build_static_row_values(
     start_fields: Dict[str, Any],
     filter_answers: Dict[int, Any],

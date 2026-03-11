@@ -13,6 +13,7 @@ from .transform import (
     extract_transpose_vector,
     find_qualifying_projection_columns,
     load_input_workbook,
+    read_projection_row_headers,
     read_start_page_fields,
 )
 from .writer import (
@@ -100,23 +101,45 @@ def _load_settings(settings_path: str) -> Dict[str, Any]:
     return json.loads(open(settings_path, "r", encoding="utf-8").read())
 
 
-def _build_fallback_preview_headers(settings: Dict[str, Any], static_value_count: int) -> List[str]:
+def _build_preview_headers(
+    settings: Dict[str, Any],
+    static_value_count: int,
+    dynamic_headers: List[Any],
+) -> List[str]:
     static_end_idx = col_to_idx(settings["output_layout"]["static_end_col"])
     static_padding_count = max(0, static_end_idx - static_value_count)
     padded_static_headers = STATIC_PREVIEW_HEADERS + ([""] * static_padding_count)
-    dynamic_header_start = settings["projections"]["transpose_start_row"]
-    dynamic_header_end = settings["projections"]["transpose_end_row"]
-    dynamic_headers = [
-        f"Projection Row {row_idx}" for row_idx in range(dynamic_header_start, dynamic_header_end + 1)
+    normalized_dynamic_headers = [
+        header if header not in (None, "") else f"Projection Row {idx}"
+        for idx, header in enumerate(
+            dynamic_headers,
+            start=settings["projections"]["transpose_start_row"],
+        )
     ]
-    return padded_static_headers + dynamic_headers
+    return _make_unique_headers(padded_static_headers + normalized_dynamic_headers)
+
+
+def _make_unique_headers(headers: List[Any]) -> List[str]:
+    seen: Dict[str, int] = {}
+    unique_headers: List[str] = []
+
+    for idx, header in enumerate(headers, start=1):
+        base_header = str(header) if header not in (None, "") else f"Column {idx}"
+        count = seen.get(base_header, 0)
+        if count == 0:
+            unique_headers.append(base_header)
+        else:
+            unique_headers.append(f"{base_header} ({count + 1})")
+        seen[base_header] = count + 1
+
+    return unique_headers
 
 
 def _prepare_transpose_data(
     input_path: str,
     settings: Dict[str, Any],
     answers: Dict[int, Any],
-) -> Tuple[Dict[str, Any], List[List[Any]], List[Any], List[str]]:
+) -> Tuple[Dict[str, Any], List[List[Any]], List[Any], List[Any], List[str]]:
     questions = read_filter_questions(
         output_template_path=settings["output_template_path"],
         filters_sheet_name=settings["filters_sheet_name"],
@@ -157,8 +180,13 @@ def _prepare_transpose_data(
         )
         for col_idx in qualifying_cols
     ]
+    dynamic_headers = read_projection_row_headers(
+        ws_proj,
+        start_row=settings["projections"]["transpose_start_row"],
+        end_row=settings["projections"]["transpose_end_row"],
+    )
 
-    return settings, dynamic_rows, static_values, list(warnings)
+    return settings, dynamic_rows, static_values, dynamic_headers, list(warnings)
 
 
 def _open_destination_session(settings: Dict[str, Any]):
@@ -178,12 +206,14 @@ def build_preview_result(
     answers: Dict[int, Any],
 ) -> PreviewResult:
     settings = _load_settings(settings_path)
-    settings, dynamic_rows, static_values, warnings = _prepare_transpose_data(input_path, settings, answers)
+    settings, dynamic_rows, static_values, dynamic_headers, warnings = _prepare_transpose_data(
+        input_path, settings, answers
+    )
 
     static_end_idx = col_to_idx(settings["output_layout"]["static_end_col"])
     static_padding = [None] * max(0, static_end_idx - len(static_values))
     rows = [static_values + static_padding + dynamic_values for dynamic_values in dynamic_rows]
-    headers = _build_fallback_preview_headers(settings, len(static_values))
+    headers = _build_preview_headers(settings, len(static_values), dynamic_headers)
 
     return PreviewResult(
         headers=headers,
