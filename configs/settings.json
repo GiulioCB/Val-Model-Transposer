@@ -1,6 +1,12 @@
 {
   "output_template_path": "Output sheet.xlsx",
-  "destination_workbook_path": "DESTINATION_Output_DB.xlsx",
+  "destination_workbook_path": "C:\\Users\\GCalmetta\\OneDrive - CBRE, Inc\\Desktop\\D&T Projects\\BD Uploader\\OUTPUT.xlsx",
+  "output_storage": {
+    "type": "github",
+    "github_repo": "GiulioCB/bd.uploader.data",
+    "github_excel_path": "OUTPUT.xlsx",
+    "github_branch": "main"
+  },
   "destination_sheet_name": "Output",
   "input_sheets": {
     "start_page": "Start Page",
@@ -30,9 +36,10 @@
     "insert_row_index": 2
   },
   "geocoding": {
-    "enabled": false,
-    "provider": "stub",
+    "enabled": true,
+    "provider": "nominatim",
     "api_key": "",
-    "endpoint": ""
+    "endpoint": "https://nominatim.openstreetmap.org/search",
+    "timeout_seconds": 10
   }
 }

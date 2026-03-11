@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
+from zipfile import BadZipFile
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.utils import column_index_from_string
@@ -76,37 +77,69 @@ def build_static_row_values(
     # Yes/No filters (10-14) are stored as "Yes"/"No"
     static_values = [
         start_fields.get("property_name"),                 # A
-        start_fields.get("street_address"),                # B
-        start_fields.get("country_region"),                # C
-        start_fields.get("city_town"),                     # D
-        start_fields.get("zip_post_code"),                 # E
-        f.get(1),                                          # F PropertyType
-        f.get(2),                                          # G Location
-        f.get(3),                                          # H Food Bev Operator
-        f.get(4),                                          # I Operator
-        start_fields.get("rooms"),                         # J Rooms
-        f.get(5),                                          # K Chain/ChainID
-        start_fields.get("classification"),                # L Classification
-        f.get(6),                                          # M Management Company
-        f.get(7),                                          # N Owner Company
-        f.get(8),                                          # O YearOpened
-        f.get(9),                                          # P MeetingSpace
-        start_fields.get("meeting_rooms"),                 # Q MeetingRooms
-        start_fields.get("meeting_max_capacity"),          # R MeetingMaxCapacity
-        f.get(10),                                         # S Ski
-        f.get(11),                                         # T Spa
-        f.get(12),                                         # U HealthClub
-        f.get(13),                                         # V Golf
-        f.get(14),                                         # W Boutique
-        f.get(15),                                         # X FoodOutlets
-        f.get(16),                                         # Y BeverageOutlets
-        start_fields.get("pcd2"),                           # Z pcd2
-        lat,                                               # AA? (depends on actual sheet columns; we write by column letters in writer)
-        lon,
-        start_fields.get("currency"),
+        None,                                              # B StreetNumber
+        start_fields.get("street_address"),                # C StreetAddress
+        None,                                              # D StreetType
+        None,                                              # E StreetPrefix
+        None,                                              # F StreetSuffix
+        None,                                              # G POBox
+        None,                                              # H Country
+        start_fields.get("country_region"),                # I Country - Region
+        None,                                              # J Region
+        None,                                              # K County
+        start_fields.get("city_town"),                     # L City/Town
+        None,                                              # M District
+        start_fields.get("zip_post_code"),                 # N Zip/Post Code
+        f.get(1),                                          # O PropertyType
+        None,                                              # P Owner Type
+        f.get(2),                                          # Q Location
+        f.get(3),                                          # R Food Bev Operator
+        f.get(4),                                          # S Operator
+        start_fields.get("rooms"),                         # T Rooms
+        None,                                              # U Metro Area
+        None,                                              # V Market Area
+        None,                                              # W Submarket Area
+        f.get(5),                                          # X Chain/ChainID
+        start_fields.get("classification"),                # Y Classification
+        f.get(6),                                          # Z Management Company
+        f.get(7),                                          # AA Owner Company
+        f.get(8),                                          # AB YearOpened
+        None,                                              # AC YearClosed
+        None,                                              # AD Year Recent Renovation
+        None,                                              # AE OwnBuildings
+        None,                                              # AF OwnLand
+        f.get(9),                                          # AG MeetingSpace (SQM)
+        start_fields.get("meeting_rooms"),                 # AH MeetingRooms
+        start_fields.get("meeting_max_capacity"),          # AI MeetingMaxCapacity
+        None,                                              # AJ Casino
+        None,                                              # AK Convention
+        None,                                              # AL Conference
+        f.get(10),                                         # AM Ski
+        f.get(11),                                         # AN Spa
+        f.get(12),                                         # AO HealthClub
+        f.get(13),                                         # AP Golf
+        f.get(14),                                         # AQ Boutique
+        None,                                              # AR AllSuite
+        None,                                              # AS Suites
+        None,                                              # AT Floors
+        None,                                              # AU ParkingSpaces
+        f.get(15),                                         # AV FoodOutlets
+        f.get(16),                                         # AW BeverageOutlets
+        None,                                              # AX Financial Data provider
+        None,                                              # AY Notes
+        start_fields.get("pcd2"),                          # AZ pcd2
+        lat,                                               # BA lat (Automation 1)
+        lon,                                               # BB long (Automation 2)
+        start_fields.get("currency"),                      # BC Currency
     ]
     return static_values, warnings
 
 def load_input_workbook(path: str):
     # data_only=True reads cached results (Excel-calculated values). See README notes.
-    return load_workbook(path, data_only=True, keep_vba=False)
+    try:
+        return load_workbook(path, data_only=True, keep_vba=False)
+    except BadZipFile as exc:
+        raise ValueError(
+            "The uploaded input workbook is not a valid Excel .xlsx/.xlsm file. "
+            "Please re-save the source model in Excel and upload it again."
+        ) from exc

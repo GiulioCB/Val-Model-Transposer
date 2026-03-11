@@ -1,20 +1,26 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
+from typing import Any, Dict, List, Tuple
 
-from .filters import read_filter_questions, validate_answers
-from .transform import (
-    load_input_workbook,
-    _get_ws,
-    read_start_page_fields,
-    find_qualifying_projection_columns,
-    extract_transpose_vector,
-    build_static_row_values,
-)
+from .excel_utils import col_to_idx
+from .filters import normalize_answers_for_processing, read_filter_questions, validate_answers
 from .geocode import GeocodeConfig
-from .writer import insert_and_write_row
+from .transform import (
+    _get_ws,
+    build_static_row_values,
+    extract_transpose_vector,
+    find_qualifying_projection_columns,
+    load_input_workbook,
+    read_start_page_fields,
+)
+from .writer import (
+    insert_and_write_row_in_workbook,
+    open_destination_workbook,
+    save_destination_workbook,
+)
+
 
 @dataclass
 class RunResult:
@@ -22,14 +28,95 @@ class RunResult:
     qualifying_columns: int
     warnings: List[str]
 
-def run_transpose_job(
-    input_path: str,
-    settings_path: str,
-    answers: Dict[int, Any],
-) -> RunResult:
-    settings = json.loads(open(settings_path, "r", encoding="utf-8").read())
 
-    # Load questions (for validation)
+@dataclass
+class PreviewResult:
+    headers: List[str]
+    rows: List[List[Any]]
+    qualifying_columns: int
+    warnings: List[str]
+
+
+STATIC_PREVIEW_HEADERS = [
+    "Property Name",
+    "Street Number",
+    "Street Address",
+    "Street Type",
+    "Street Prefix",
+    "Street Suffix",
+    "POBox",
+    "Country",
+    "Country - Region",
+    "Region",
+    "County",
+    "City/Town",
+    "District",
+    "Zip/Post Code",
+    "PropertyType",
+    "Owner Type",
+    "Location",
+    "Food Bev Operator",
+    "Operator",
+    "Rooms",
+    "Metro Area",
+    "Market Area",
+    "Submarket Area",
+    "Chain/ChainID",
+    "Classification",
+    "Management Company",
+    "Owner Company",
+    "YearOpened",
+    "YearClosed",
+    "Year Recent Renovation",
+    "OwnBuildings",
+    "OwnLand",
+    "MeetingSpace (SQM)",
+    "MeetingRooms",
+    "MeetingMaxCapacity (theatre style only)",
+    "Casino",
+    "Convention",
+    "Conference",
+    "Ski",
+    "Spa",
+    "HealthClub",
+    "Golf",
+    "Boutique",
+    "AllSuite",
+    "Suites",
+    "Floors",
+    "ParkingSpaces",
+    "FoodOutlets",
+    "BeverageOutlets",
+    "Financial Data provider (Source of Information)",
+    "Notes",
+    "pcd2",
+    "lat",
+    "long",
+    "Currency",
+]
+
+
+def _load_settings(settings_path: str) -> Dict[str, Any]:
+    return json.loads(open(settings_path, "r", encoding="utf-8").read())
+
+
+def _build_fallback_preview_headers(settings: Dict[str, Any], static_value_count: int) -> List[str]:
+    static_end_idx = col_to_idx(settings["output_layout"]["static_end_col"])
+    static_padding_count = max(0, static_end_idx - static_value_count)
+    padded_static_headers = STATIC_PREVIEW_HEADERS + ([""] * static_padding_count)
+    dynamic_header_start = settings["projections"]["transpose_start_row"]
+    dynamic_header_end = settings["projections"]["transpose_end_row"]
+    dynamic_headers = [
+        f"Projection Row {row_idx}" for row_idx in range(dynamic_header_start, dynamic_header_end + 1)
+    ]
+    return padded_static_headers + dynamic_headers
+
+
+def _prepare_transpose_data(
+    input_path: str,
+    settings: Dict[str, Any],
+    answers: Dict[int, Any],
+) -> Tuple[Dict[str, Any], List[List[Any]], List[Any], List[str]]:
     questions = read_filter_questions(
         output_template_path=settings["output_template_path"],
         filters_sheet_name=settings["filters_sheet_name"],
@@ -44,13 +131,14 @@ def run_transpose_job(
     if not ok:
         raise ValueError("Missing required filters:\n- " + "\n- ".join(missing))
 
+    normalized_answers = normalize_answers_for_processing(answers)
+
     wb_in = load_input_workbook(input_path)
     ws_start = _get_ws(wb_in, settings["input_sheets"]["start_page"])
     ws_proj = _get_ws(wb_in, settings["input_sheets"]["projections"])
 
     start_fields = read_start_page_fields(ws_start)
-
-    qual_cols = find_qualifying_projection_columns(
+    qualifying_cols = find_qualifying_projection_columns(
         ws_proj,
         scan_start_col=settings["projections"]["scan_start_col"],
         scan_end_col=settings["projections"]["scan_end_col"],
@@ -59,32 +147,79 @@ def run_transpose_job(
     )
 
     geocfg = GeocodeConfig(**settings.get("geocoding", {}))
-
-    static_values, static_warnings = build_static_row_values(start_fields, answers, geocfg)
-
-    rows_written = 0
-    warnings = list(static_warnings)
-
-    # Decide processing order:
-    # E->U means earliest on top? With insert-at-row-2, the LAST processed ends up on top.
-    # We'll process right-to-left so the leftmost qualifying ends up deepest, rightmost ends on top.
-    for col_idx in reversed(qual_cols):
-        dyn_vec = extract_transpose_vector(
+    static_values, warnings = build_static_row_values(start_fields, normalized_answers, geocfg)
+    dynamic_rows = [
+        extract_transpose_vector(
             ws_proj,
             col_idx=col_idx,
             start_row=settings["projections"]["transpose_start_row"],
             end_row=settings["projections"]["transpose_end_row"],
         )
+        for col_idx in qualifying_cols
+    ]
 
-        insert_and_write_row(
-            destination_path=settings["destination_workbook_path"],
+    return settings, dynamic_rows, static_values, list(warnings)
+
+
+def _open_destination_session(settings: Dict[str, Any]):
+    output_storage = settings.get("output_storage", {})
+    storage_type = output_storage.get("type", "local")
+    return open_destination_workbook(
+        destination_path=settings.get("destination_workbook_path") if storage_type == "local" else None,
+        github_repo=output_storage.get("github_repo") if storage_type == "github" else None,
+        github_excel_path=output_storage.get("github_excel_path") if storage_type == "github" else None,
+        github_branch=output_storage.get("github_branch") if storage_type == "github" else None,
+    )
+
+
+def build_preview_result(
+    input_path: str,
+    settings_path: str,
+    answers: Dict[int, Any],
+) -> PreviewResult:
+    settings = _load_settings(settings_path)
+    settings, dynamic_rows, static_values, warnings = _prepare_transpose_data(input_path, settings, answers)
+
+    static_end_idx = col_to_idx(settings["output_layout"]["static_end_col"])
+    static_padding = [None] * max(0, static_end_idx - len(static_values))
+    rows = [static_values + static_padding + dynamic_values for dynamic_values in dynamic_rows]
+    headers = _build_fallback_preview_headers(settings, len(static_values))
+
+    return PreviewResult(
+        headers=headers,
+        rows=rows,
+        qualifying_columns=len(dynamic_rows),
+        warnings=warnings,
+    )
+
+
+def run_transpose_job(
+    input_path: str,
+    settings_path: str,
+    answers: Dict[int, Any],
+) -> RunResult:
+    preview = build_preview_result(input_path, settings_path, answers)
+    settings = _load_settings(settings_path)
+    destination_session = _open_destination_session(settings)
+
+    rows_written = 0
+    static_end_idx = col_to_idx(settings["output_layout"]["static_end_col"])
+
+    for row_values in reversed(preview.rows):
+        insert_and_write_row_in_workbook(
+            workbook=destination_session.workbook,
             sheet_name=settings["destination_sheet_name"],
             insert_row_index=settings["output_layout"]["insert_row_index"],
-            static_values_A_to_BC=static_values,
-            dynamic_values_BD_to_LZ=dyn_vec,
+            static_values_A_to_BC=row_values[:static_end_idx],
+            dynamic_values_BD_to_LZ=row_values[static_end_idx:],
             static_start_col=settings["output_layout"]["static_start_col"],
             dynamic_start_col=settings["output_layout"]["dynamic_start_col"],
         )
         rows_written += 1
 
-    return RunResult(rows_written=rows_written, qualifying_columns=len(qual_cols), warnings=warnings)
+    save_destination_workbook(destination_session)
+    return RunResult(
+        rows_written=rows_written,
+        qualifying_columns=preview.qualifying_columns,
+        warnings=preview.warnings,
+    )
