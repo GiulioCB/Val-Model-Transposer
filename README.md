@@ -2,8 +2,8 @@
 
 Local Streamlit tool that:
 1) Lets the user upload an **Input valuation model** (xlsm/xlsx)
-2) Asks 16 filter questions defined in the **Output template** (Filters tab)
-3) Validates mandatory questions (row 8 contains 'x')
+2) Asks 16 filter questions defined directly in `src/filters.py`
+3) Validates filters marked as required in code
 4) Scans `Projections` columns **E:U** for columns where:
    - Row 6 ("Last Month of Period") == "December"
    - Row 8 ("Status") == "Actual"
@@ -26,10 +26,11 @@ streamlit run app/streamlit_app.py
 
 ## Configuration
 Edit `configs/settings.json`:
-- `output_template_path`: path to your output template workbook (used to read Filters questions)
 - `destination_workbook_path`: path to the central output workbook where rows are inserted at row 2
 - `destination_sheet_name`: default "Output"
 - `geocoding`: optional (provider/url/api_key)
+
+To change filter labels, types, required flags, or dropdown options, edit `HARDCODED_FILTER_QUESTIONS` in `src/filters.py`.
 
 ## Notes / limitations
 - This uses **openpyxl**. If your input `.xlsm` contains formulas that were not calculated & saved, values may be stale.

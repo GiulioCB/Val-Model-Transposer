@@ -10,8 +10,7 @@ from src.pipeline import run_transpose_job
 
 st.set_page_config(page_title="Valuation Transposer", layout="wide")
 
-FILTERS_PATH = r"C:\Users\giuli\OneDrive\Val-Transposer-Output\Filters\Filters.xlsx"
-OUTPUT_PATH = r"C:\Users\giuli\OneDrive\Val-Transposer-Output\Output sheet.xlsx"
+SETTINGS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "configs", "settings.json"))
 
 if "step" not in st.session_state:
     st.session_state.step = 1
@@ -41,56 +40,59 @@ if st.session_state.step >= 2:
     st.markdown("### 2) Filters")
 
     try:
-        filters = read_filter_questions(
-            FILTERS_PATH,
-            "Filters",  # or "filters" depending on sheet name
-            5,          # question_row
-            8,          # required_row
-            "B",        # start_col  (column B)
-            "Q",        # end_col    (column Q, 16 questions)
-            10          # dropdown_start_row
-        )
-        st.write("DEBUG filter item type:", type(filters[0]))
-        st.write("DEBUG fields:", dir(filters[0]))
+        filters = read_filter_questions()
     except Exception as e:
-        st.error(f"Could not read Filters.xlsx: {e}")
+        st.error(f"Could not load filter definitions: {e}")
         st.stop()
 
     answers = {}
 
     for item in filters:
-        question_key = item.key
-        question_label = item.label
+        question_key = item.idx
+        input_key = f"filter_{item.idx}"
+        question_label = item.title
         required = item.required
         options = getattr(item, "options", [])
-        qtype = getattr(item, "qtype", getattr(item, "type", "dropdown"))
+        qtype = getattr(item, "kind", "text")
 
         if qtype == "dropdown":
-            if not options:
-                options = ["No options found"]
-
-            answers[question_key] = st.selectbox(
-                f"{question_label}{' *' if required else ''}",
-                options,
-                key=question_key
-            )
+            if options:
+                select_options = [""] + options
+                selected = st.selectbox(
+                    f"{question_label}{' *' if required else ''}",
+                    select_options,
+                    key=input_key
+                )
+                answers[question_key] = selected or None
+            else:
+                answers[question_key] = st.text_input(
+                    f"{question_label}{' *' if required else ''}",
+                    key=input_key,
+                    help="No dropdown options are configured yet for this filter."
+                ) or None
 
         elif qtype in ("yesno", "yes_no", "binary"):
             answers[question_key] = st.radio(
                 f"{question_label}{' *' if required else ''}",
-                ["Yes", "No"],
+                ["", "Yes", "No"],
                 horizontal=True,
-                key=question_key
-            )
+                key=input_key,
+                format_func=lambda value: "Select..." if value == "" else value,
+            ) or None
+        else:
+            answers[question_key] = st.text_input(
+                f"{question_label}{' *' if required else ''}",
+                key=input_key
+            ) or None
 
     st.session_state.answers = answers
 
     if st.button("Run Transposer"):
         try:
             run_transpose_job(
-                input_file=st.session_state.input_file_path,
-                filters=st.session_state.answers,
-                output_path=OUTPUT_PATH
+                input_path=st.session_state.input_file_path,
+                settings_path=SETTINGS_PATH,
+                answers=st.session_state.answers,
             )
             st.success("Output created successfully.")
         except Exception as e:

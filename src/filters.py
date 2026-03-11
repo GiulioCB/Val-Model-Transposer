@@ -1,57 +1,41 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import List, Dict, Any, Tuple
-from openpyxl import load_workbook
-from .excel_utils import col_to_idx, normalize_str, is_blank
+from .excel_utils import normalize_str
 from .types import FilterQuestion
 
-DROPDOWN_QS = set(range(1, 8))        # 1..7
-TEXT_QS = {8, 9, 15, 16}              # free input
-YESNO_QS = set(range(10, 15))         # 10..14
+HARDCODED_FILTER_QUESTIONS: List[FilterQuestion] = [
+    FilterQuestion(idx=1, title="PropertyType", required=False, kind="dropdown", options=[]),
+    FilterQuestion(idx=2, title="Location", required=False, kind="dropdown", options=[]),
+    FilterQuestion(idx=3, title="Food Bev Operator", required=False, kind="dropdown", options=[]),
+    FilterQuestion(idx=4, title="Operator", required=False, kind="dropdown", options=[]),
+    FilterQuestion(idx=5, title="Chain/ChainID", required=False, kind="dropdown", options=[]),
+    FilterQuestion(idx=6, title="Management Company", required=False, kind="dropdown", options=[]),
+    FilterQuestion(idx=7, title="Owner Company", required=False, kind="dropdown", options=[]),
+    FilterQuestion(idx=8, title="YearOpened", required=False, kind="text", options=None),
+    FilterQuestion(idx=9, title="MeetingSpace (SQM)", required=False, kind="text", options=None),
+    FilterQuestion(idx=10, title="Ski", required=False, kind="yesno", options=["Yes", "No"]),
+    FilterQuestion(idx=11, title="Spa", required=False, kind="yesno", options=["Yes", "No"]),
+    FilterQuestion(idx=12, title="HealthClub", required=False, kind="yesno", options=["Yes", "No"]),
+    FilterQuestion(idx=13, title="Golf", required=False, kind="yesno", options=["Yes", "No"]),
+    FilterQuestion(idx=14, title="Boutique", required=False, kind="yesno", options=["Yes", "No"]),
+    FilterQuestion(idx=15, title="FoodOutlets", required=False, kind="text", options=None),
+    FilterQuestion(idx=16, title="BeverageOutlets", required=False, kind="text", options=None),
+]
 
 def read_filter_questions(
-    output_template_path: str,
-    filters_sheet_name: str,
-    question_row: int,
-    required_row: int,
-    start_col: str,
-    end_col: str,
-    dropdown_start_row: int,
+    output_template_path: str | None = None,
+    filters_sheet_name: str | None = None,
+    question_row: int | None = None,
+    required_row: int | None = None,
+    start_col: str | None = None,
+    end_col: str | None = None,
+    dropdown_start_row: int | None = None,
 ) -> List[FilterQuestion]:
-    wb = load_workbook(output_template_path, data_only=True)
-    if filters_sheet_name not in wb.sheetnames:
-        raise ValueError(f"Template missing sheet: {filters_sheet_name}")
-    ws = wb[filters_sheet_name]
-
-    s = col_to_idx(start_col)
-    e = col_to_idx(end_col)
-
-    questions: List[FilterQuestion] = []
-    for i, col_idx in enumerate(range(s, e + 1), start=1):
-        title = normalize_str(ws.cell(row=question_row, column=col_idx).value)
-        required_flag = normalize_str(ws.cell(row=required_row, column=col_idx).value).lower()
-        required = required_flag == "x"
-
-        if i in DROPDOWN_QS:
-            opts = []
-            r = dropdown_start_row
-            while True:
-                v = ws.cell(row=r, column=col_idx).value
-                if is_blank(v):
-                    break
-                opts.append(normalize_str(v))
-                r += 1
-            kind = "dropdown"
-            questions.append(FilterQuestion(idx=i, title=title or f"Filter {i}", required=required, kind=kind, options=opts))
-        elif i in TEXT_QS:
-            questions.append(FilterQuestion(idx=i, title=title or f"Filter {i}", required=required, kind="text", options=None))
-        elif i in YESNO_QS:
-            questions.append(FilterQuestion(idx=i, title=title or f"Filter {i}", required=required, kind="yesno", options=["Yes", "No"]))
-        else:
-            # fallback: treat as text
-            questions.append(FilterQuestion(idx=i, title=title or f"Filter {i}", required=required, kind="text", options=None))
-
-    return questions
+    # Kept signature-compatible with the previous workbook-based implementation so
+    # existing callers do not need to change when switching to code-defined filters.
+    return [replace(question) for question in HARDCODED_FILTER_QUESTIONS]
 
 def validate_answers(questions: List[FilterQuestion], answers: Dict[int, Any]) -> Tuple[bool, List[str]]:
     missing: List[str] = []
